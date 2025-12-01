@@ -5,11 +5,17 @@ const jwt = require("jsonwebtoken");
 const Booking = require("../models/Booking");
 const Vehicle = require("../models/Vehicle");
 
-
-// --------------------------------------------------
-// AUTH MIDDLEWARE
-// --------------------------------------------------
+/* --------------------------------------------------
+   AUTH MIDDLEWARE (with TEST_MODE bypass)
+-------------------------------------------------- */
 const authenticateToken = (req, res, next) => {
+    // ⭐ TEMPORARY BYPASS FOR LOAD TESTING
+    if (process.env.TEST_MODE === "true") {
+        // Use a fixed test userId so booking creation works
+        req.userId = "67432d1b3fd4d34abcd11111"; 
+        return next();
+    }
+
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
 
@@ -19,17 +25,16 @@ const authenticateToken = (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.userId = decoded.userId;
+        req.userId = decoded.userId; // attach userId from token
         next();
     } catch (error) {
         return res.status(403).json({ error: "Invalid token" });
     }
 };
 
-
-// --------------------------------------------------
-// CREATE BOOKING (WITH POPULATE)
-// --------------------------------------------------
+/* --------------------------------------------------
+   CREATE BOOKING (with populate)
+-------------------------------------------------- */
 router.post("/create", authenticateToken, async (req, res) => {
     try {
         console.log("📥 Incoming booking data:", req.body);
@@ -44,6 +49,7 @@ router.post("/create", authenticateToken, async (req, res) => {
             totalPrice,
         } = req.body;
 
+        // Validate required fields
         if (!vehicleId || !startDate || !startTime || !endDate || !endTime || !location || !totalPrice) {
             return res.status(400).json({ error: "Missing required fields" });
         }
@@ -64,7 +70,7 @@ router.post("/create", authenticateToken, async (req, res) => {
             status: "confirmed",
         });
 
-        // Update vehicle booking list
+        // Attach booking to vehicle
         await Vehicle.findByIdAndUpdate(vehicleId, {
             $push: {
                 bookings: {
@@ -80,7 +86,10 @@ router.post("/create", authenticateToken, async (req, res) => {
         // Populate vehicle details
         booking = await Booking.findById(booking._id).populate("vehicleId");
 
-        return res.json({ message: "Booking Created Successfully", booking });
+        return res.json({
+            message: "Booking Created Successfully",
+            booking,
+        });
 
     } catch (error) {
         console.error("❌ Error creating booking:", error);
@@ -88,10 +97,9 @@ router.post("/create", authenticateToken, async (req, res) => {
     }
 });
 
-
-// --------------------------------------------------
-// ⭐ GET BOOKINGS FOR LOGGED-IN USER (POPULATED)
-// --------------------------------------------------
+/* --------------------------------------------------
+   GET BOOKINGS FOR LOGGED-IN USER
+-------------------------------------------------- */
 router.get("/my-bookings", authenticateToken, async (req, res) => {
     try {
         console.log("Fetching bookings for user:", req.userId);
@@ -110,7 +118,6 @@ router.get("/my-bookings", authenticateToken, async (req, res) => {
         return res.status(500).json({ error: "Server error" });
     }
 });
-
 
 module.exports = router;
 
