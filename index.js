@@ -15,47 +15,32 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ROOT ROUTE - Render health check
+// -------------------------------------
+// HEALTH CHECK
+// -------------------------------------
 app.get("/", (req, res) => {
   res.send("Bike Rental API is running 🚀");
 });
 
 // -------------------------------------
-// MongoDB Connection
+// MONGO CONNECTION
 // -------------------------------------
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection Error:", err));
 
-/* ---------------------------------------------------
-   🔥 TEMP BLOCK: CREATE INDEXES ONCE ON DEPLOY
----------------------------------------------------- */
-mongoose.connection.on("open", async () => {
-  try {
-    console.log("📌 Creating MongoDB indexes...");
-    await Vehicle.createIndexes();
-    await Booking.createIndexes();
-    console.log("✅ Indexes created successfully!");
-  } catch (err) {
-    console.error("❌ Error creating indexes:", err);
-  }
-});
-/* ---------------------------------------------------
-   REMOVE THIS BLOCK AFTER FIRST SUCCESSFUL DEPLOY
----------------------------------------------------- */
-
+// -------------------------------------
 // ROUTES
+// -------------------------------------
 app.use("/api/auth", authRoutes);
 app.use("/api/bookings", bookingRoutes);
 
 // -------------------------------------
-// SEARCH VEHICLES API
+// SEARCH VEHICLES API (Optimized)
 // -------------------------------------
 app.post("/api/vehicles/search", async (req, res) => {
   const { startDate, endDate, startTime, endTime } = req.body;
-
-  console.log("Request data:", req.body);
 
   if (!startDate || !endDate || !startTime || !endTime) {
     return res.status(400).json({ error: "Missing required parameters" });
@@ -76,9 +61,9 @@ app.post("/api/vehicles/search", async (req, res) => {
     }
 
     if (endDT.isSameOrBefore(startDT)) {
-      return res
-        .status(400)
-        .json({ error: "End datetime must be after start datetime" });
+      return res.status(400).json({
+        error: "End datetime must be after start datetime",
+      });
     }
 
     const startDateTime = startDT.toDate();
@@ -87,19 +72,23 @@ app.post("/api/vehicles/search", async (req, res) => {
     const durationMs = endDateTime - startDateTime;
     const durationDays = durationMs / (1000 * 60 * 60 * 24);
 
-    // Faster with indexes
+    // 🚀 Optimized DB calls
     const allVehicles = await Vehicle.find().lean();
 
-    // Faster overlapping query with indexes
-    const bookings = await Booking.find({
-      startDate: { $lt: endDateTime },
-      endDate: { $gt: startDateTime },
-    }).lean();
+    // Indexed search: only fetch overlapping bookings
+    const bookings = await Booking.find(
+      {
+        startDate: { $lt: endDateTime },
+        endDate: { $gt: startDateTime },
+      },
+      { vehicleId: 1, startDate: 1, endDate: 1, location: 1 }
+    ).lean();
 
     const results = allVehicles.map((vehicle) => {
       const totalPrice = Math.ceil(durationDays * vehicle.PricePerday);
       const totalIncludedKm = Math.ceil(durationDays * vehicle.includedKM);
 
+      // Build availability map
       const availability = vehicle.locations.reduce((acc, loc) => {
         const isBooked = bookings.some(
           (bk) =>
@@ -139,7 +128,9 @@ const seedVehicles = async () => {
     );
 
     if (newVehicles.length > 0) {
-      const created = await Vehicle.insertMany(newVehicles, { ordered: false });
+      const created = await Vehicle.insertMany(newVehicles, {
+        ordered: false,
+      });
       console.log(`Seeded Vehicles: ${created.length} added`);
     } else {
       console.log("No new vehicles to seed.");
@@ -156,7 +147,7 @@ const seedVehicles = async () => {
 seedVehicles();
 
 // -------------------------------------
-// START SERVER (Render-friendly)
+// START SERVER
 // -------------------------------------
 const PORT = process.env.PORT || 3000;
 
