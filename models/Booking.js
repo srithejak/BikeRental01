@@ -2,35 +2,36 @@ const mongoose = require("mongoose");
 
 const bookingSchema = new mongoose.Schema(
   {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
 
-    vehicleId: { type: mongoose.Schema.Types.ObjectId, ref: "Vehicle", required: true },
+    vehicleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Vehicle",
+      required: true,
+      index: true,
+    },
 
-    startDate: { type: Date, required: true },
-    endDate: { type: Date, required: true },
+    startDate: { type: Date, required: true, index: true },
+    endDate: { type: Date, required: true, index: true },
+    startTime: String,
+    endTime: String,
 
-    startTime: { type: String, required: true },
-    endTime: { type: String, required: true },
+    location: { type: String, required: true, index: true },
 
-    location: { type: String, required: true },
-    totalPrice: { type: Number, required: true },
+    totalPrice: Number,
 
     status: { type: String, default: "confirmed" },
   },
   { timestamps: true }
 );
 
-/* ------------------------------------------
-   🔥 PERFORMANCE INDEXES
--------------------------------------------- */
-
-// Fast lookup by user (My Bookings API)
-bookingSchema.index({ userId: 1, createdAt: -1 });
-
-// Fast search for overlapping bookings
+// Compound index for faster conflict checks
 bookingSchema.index({ vehicleId: 1, startDate: 1, endDate: 1 });
 
-// Improve "filter by location" queries
-bookingSchema.index({ location: 1 });
-
 module.exports = mongoose.model("Booking", bookingSchema);
+
