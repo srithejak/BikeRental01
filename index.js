@@ -28,6 +28,23 @@ mongoose
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection Error:", err));
 
+/* ---------------------------------------------------
+   🔥 TEMP BLOCK: CREATE INDEXES ONCE ON DEPLOY
+---------------------------------------------------- */
+mongoose.connection.on("open", async () => {
+  try {
+    console.log("📌 Creating MongoDB indexes...");
+    await Vehicle.createIndexes();
+    await Booking.createIndexes();
+    console.log("✅ Indexes created successfully!");
+  } catch (err) {
+    console.error("❌ Error creating indexes:", err);
+  }
+});
+/* ---------------------------------------------------
+   REMOVE THIS BLOCK AFTER FIRST SUCCESSFUL DEPLOY
+---------------------------------------------------- */
+
 // ROUTES
 app.use("/api/auth", authRoutes);
 app.use("/api/bookings", bookingRoutes);
@@ -70,12 +87,14 @@ app.post("/api/vehicles/search", async (req, res) => {
     const durationMs = endDateTime - startDateTime;
     const durationDays = durationMs / (1000 * 60 * 60 * 24);
 
-    const allVehicles = await Vehicle.find();
+    // Faster with indexes
+    const allVehicles = await Vehicle.find().lean();
 
+    // Faster overlapping query with indexes
     const bookings = await Booking.find({
       startDate: { $lt: endDateTime },
       endDate: { $gt: startDateTime },
-    });
+    }).lean();
 
     const results = allVehicles.map((vehicle) => {
       const totalPrice = Math.ceil(durationDays * vehicle.PricePerday);
@@ -94,7 +113,7 @@ app.post("/api/vehicles/search", async (req, res) => {
       }, {});
 
       return {
-        ...vehicle.toObject(),
+        ...vehicle,
         calculatedPrice: totalPrice,
         calculatedIncludedKm: totalIncludedKm,
         durationDays,
