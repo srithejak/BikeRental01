@@ -2,36 +2,28 @@ const mongoose = require("mongoose");
 
 const bookingSchema = new mongoose.Schema(
   {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
-
-    vehicleId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Vehicle",
-      required: true,
-      index: true,
-    },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    vehicleId: { type: mongoose.Schema.Types.ObjectId, ref: "Vehicle", required: true },
 
     startDate: { type: Date, required: true, index: true },
     endDate: { type: Date, required: true, index: true },
-    startTime: String,
-    endTime: String,
+
+    startTime: { type: String, required: true },
+    endTime: { type: String, required: true },
 
     location: { type: String, required: true, index: true },
 
-    totalPrice: Number,
+    totalPrice: { type: Number, required: true },
 
-    status: { type: String, default: "confirmed" },
+    status: { type: String, default: "confirmed" }
   },
   { timestamps: true }
 );
 
-// Compound index for faster conflict checks
+// Compound index for fast conflict checks + read queries
 bookingSchema.index({ vehicleId: 1, startDate: 1, endDate: 1 });
+bookingSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Booking", bookingSchema);
+
 
