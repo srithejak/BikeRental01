@@ -1,4 +1,4 @@
-const express = require("express");
+const express = require("express"); 
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 
@@ -6,9 +6,15 @@ const Booking = require("../models/Booking");
 const Vehicle = require("../models/Vehicle");
 
 /* --------------------------------------------------
-   AUTH MIDDLEWARE (Production)
+   AUTH MIDDLEWARE (Production + TEST_MODE bypass)
 -------------------------------------------------- */
 const authenticateToken = (req, res, next) => {
+  // ⭐ If test mode enabled, bypass authentication
+  if (process.env.TEST_MODE === "true") {
+    req.userId = "67432d1b3fd4d34abcd11111"; 
+    return next();
+  }
+
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
@@ -47,7 +53,6 @@ router.post("/create", authenticateToken, async (req, res) => {
     const startDT = new Date(`${startDate} ${startTime}`);
     const endDT = new Date(`${endDate} ${endTime}`);
 
-    // Create booking
     let booking = await Booking.create({
       userId: req.userId,
       vehicleId,
@@ -60,7 +65,6 @@ router.post("/create", authenticateToken, async (req, res) => {
       status: "confirmed",
     });
 
-    // Attach booking to vehicle
     await Vehicle.findByIdAndUpdate(vehicleId, {
       $push: {
         bookings: {
@@ -73,7 +77,6 @@ router.post("/create", authenticateToken, async (req, res) => {
       },
     });
 
-    // Populate vehicle details
     booking = await Booking.findById(booking._id).populate(
       "vehicleId",
       "name image type number PricePerday includedKM"
@@ -83,6 +86,7 @@ router.post("/create", authenticateToken, async (req, res) => {
       message: "Booking Created Successfully",
       booking,
     });
+
   } catch (error) {
     console.error("❌ Error creating booking:", error);
     return res.status(500).json({ error: "Server error" });
@@ -90,7 +94,7 @@ router.post("/create", authenticateToken, async (req, res) => {
 });
 
 /* --------------------------------------------------
-   GET BOOKINGS FOR LOGGED-IN USER (Production)
+   GET BOOKINGS FOR LOGGED-IN USER
 -------------------------------------------------- */
 router.get("/my-bookings", authenticateToken, async (req, res) => {
   try {
@@ -103,6 +107,7 @@ router.get("/my-bookings", authenticateToken, async (req, res) => {
       .limit(50);
 
     return res.json({ bookings });
+
   } catch (error) {
     console.error("❌ Error fetching bookings:", error);
     return res.status(500).json({ error: "Server error" });
@@ -110,6 +115,7 @@ router.get("/my-bookings", authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+
 
 
 
