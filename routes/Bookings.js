@@ -1,17 +1,20 @@
-const express = require("express"); 
+const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 
 const Booking = require("../models/Booking");
 const Vehicle = require("../models/Vehicle");
 
+const NodeCache = require("node-cache");
+const bookingsCache = new NodeCache({ stdTTL: 30, checkperiod: 60 });
+
 /* --------------------------------------------------
-   AUTH MIDDLEWARE (Production + TEST_MODE bypass)
+   AUTH MIDDLEWARE (with TEST_MODE bypass)
 -------------------------------------------------- */
 const authenticateToken = (req, res, next) => {
-  // ⭐ If test mode enabled, bypass authentication
   if (process.env.TEST_MODE === "true") {
-    req.userId = "67432d1b3fd4d34abcd11111"; 
+    // Fixed dummy user for load tests
+    req.userId = process.env.TEST_USER_ID;
     return next();
   }
 
@@ -32,7 +35,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 /* --------------------------------------------------
-   CREATE BOOKING
+   CREATE BOOKING (same as before)
 -------------------------------------------------- */
 router.post("/create", authenticateToken, async (req, res) => {
   try {
@@ -57,8 +60,8 @@ router.post("/create", authenticateToken, async (req, res) => {
       userId: req.userId,
       vehicleId,
       startDate: startDT,
-      startTime,
       endDate: endDT,
+      startTime,
       endTime,
       location,
       totalPrice,
@@ -77,16 +80,13 @@ router.post("/create", authenticateToken, async (req, res) => {
       },
     });
 
-    booking = await Booking.findById(booking._id).populate(
-      "vehicleId",
-      "name image type number PricePerday includedKM"
-    );
+    // ❗ Invalidate cache for the user
+    bookingsCache.del(`bookings_${req.userId}`);
 
     return res.json({
       message: "Booking Created Successfully",
       booking,
     });
-
   } catch (error) {
     console.error("❌ Error creating booking:", error);
     return res.status(500).json({ error: "Server error" });
@@ -94,20 +94,58 @@ router.post("/create", authenticateToken, async (req, res) => {
 });
 
 /* --------------------------------------------------
-   GET BOOKINGS FOR LOGGED-IN USER
+   GET BOOKINGS FOR LOGGED-IN USER (Optimized)
+   - Caching enabled
+   - Manual vehicle map (no populate)
 -------------------------------------------------- */
 router.get("/my-bookings", authenticateToken, async (req, res) => {
   try {
-    const bookings = await Booking.find({ userId: req.userId })
-      .populate({
-        path: "vehicleId",
-        select: "name image type number PricePerday includedKM",
-      })
+    const cacheKey = `bookings_${req.userId}`;
+
+    // 1️⃣ Check Cache First
+    const cached = bookingsCache.get(cacheKey);
+    if (cached) {
+      return res.json({ fromCache: true, bookings: cached });
+    }
+
+    // 2️⃣ Fetch lightweight bookings
+    let bookings = await Booking.find(
+      { userId: req.userId },
+      {
+        vehicleId: 1,
+        startDate: 1,
+        endDate: 1,
+        startTime: 1,
+        endTime: 1,
+        location: 1,
+        totalPrice: 1,
+        status: 1,
+        createdAt: 1,
+      }
+    )
       .sort({ createdAt: -1 })
-      .limit(50);
+      .limit(50)
+      .lean();
 
-    return res.json({ bookings });
+    // 3️⃣ Build a vehicle lookup map
+    const vehicles = await Vehicle.find(
+      {},
+      "name image type number PricePerday includedKM"
+    ).lean();
 
+    const vehicleMap = {};
+    vehicles.forEach(v => (vehicleMap[v._id] = v));
+
+    // 4️⃣ Attach vehicle details manually
+    bookings = bookings.map(b => ({
+      ...b,
+      vehicle: vehicleMap[b.vehicleId] || null,
+    }));
+
+    // 5️⃣ Save to cache
+    bookingsCache.set(cacheKey, bookings);
+
+    return res.json({ fromCache: false, bookings });
   } catch (error) {
     console.error("❌ Error fetching bookings:", error);
     return res.status(500).json({ error: "Server error" });
@@ -115,6 +153,7 @@ router.get("/my-bookings", authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+
 
 
 
