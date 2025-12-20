@@ -6,18 +6,15 @@ const Booking = require("../models/Booking");
 const Vehicle = require("../models/Vehicle");
 
 const NodeCache = require("node-cache");
-const bookingsCache = new NodeCache({ stdTTL: 30, checkperiod: 60 });
+const bookingsCache = new NodeCache({
+  stdTTL: 30,       // cache for 30 seconds
+  checkperiod: 60,  // cleanup every 60 seconds
+});
 
 /* --------------------------------------------------
-   AUTH MIDDLEWARE (with TEST_MODE bypass)
+   AUTH MIDDLEWARE (PRODUCTION ONLY)
 -------------------------------------------------- */
 const authenticateToken = (req, res, next) => {
-  if (process.env.TEST_MODE === "true") {
-    // Fixed dummy user for load tests
-    req.userId = process.env.TEST_USER_ID;
-    return next();
-  }
-
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
@@ -35,7 +32,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 /* --------------------------------------------------
-   CREATE BOOKING (same as before)
+   CREATE BOOKING
 -------------------------------------------------- */
 router.post("/create", authenticateToken, async (req, res) => {
   try {
@@ -49,14 +46,22 @@ router.post("/create", authenticateToken, async (req, res) => {
       totalPrice,
     } = req.body;
 
-    if (!vehicleId || !startDate || !startTime || !endDate || !endTime || !location || !totalPrice) {
+    if (
+      !vehicleId ||
+      !startDate ||
+      !startTime ||
+      !endDate ||
+      !endTime ||
+      !location ||
+      !totalPrice
+    ) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
     const startDT = new Date(`${startDate} ${startTime}`);
     const endDT = new Date(`${endDate} ${endTime}`);
 
-    let booking = await Booking.create({
+    const booking = await Booking.create({
       userId: req.userId,
       vehicleId,
       startDate: startDT,
@@ -68,6 +73,7 @@ router.post("/create", authenticateToken, async (req, res) => {
       status: "confirmed",
     });
 
+    // Attach booking snapshot to vehicle
     await Vehicle.findByIdAndUpdate(vehicleId, {
       $push: {
         bookings: {
@@ -80,11 +86,11 @@ router.post("/create", authenticateToken, async (req, res) => {
       },
     });
 
-    // ❗ Invalidate cache for the user
+    // 🔥 Invalidate cache for this user
     bookingsCache.del(`bookings_${req.userId}`);
 
     return res.json({
-      message: "Booking Created Successfully",
+      message: "Booking created successfully",
       booking,
     });
   } catch (error) {
@@ -94,21 +100,22 @@ router.post("/create", authenticateToken, async (req, res) => {
 });
 
 /* --------------------------------------------------
-   GET BOOKINGS FOR LOGGED-IN USER (Optimized)
-   - Caching enabled
-   - Manual vehicle map (no populate)
+   GET MY BOOKINGS (OPTIMIZED + CACHED)
 -------------------------------------------------- */
 router.get("/my-bookings", authenticateToken, async (req, res) => {
   try {
     const cacheKey = `bookings_${req.userId}`;
 
-    // 1️⃣ Check Cache First
-    const cached = bookingsCache.get(cacheKey);
-    if (cached) {
-      return res.json({ fromCache: true, bookings: cached });
+    // 1️⃣ Check cache
+    const cachedBookings = bookingsCache.get(cacheKey);
+    if (cachedBookings) {
+      return res.json({
+        fromCache: true,
+        bookings: cachedBookings,
+      });
     }
 
-    // 2️⃣ Fetch lightweight bookings
+    // 2️⃣ Fetch bookings (lightweight query)
     let bookings = await Booking.find(
       { userId: req.userId },
       {
@@ -127,25 +134,30 @@ router.get("/my-bookings", authenticateToken, async (req, res) => {
       .limit(50)
       .lean();
 
-    // 3️⃣ Build a vehicle lookup map
+    // 3️⃣ Fetch vehicle data once
     const vehicles = await Vehicle.find(
       {},
       "name image type number PricePerday includedKM"
     ).lean();
 
     const vehicleMap = {};
-    vehicles.forEach(v => (vehicleMap[v._id] = v));
+    vehicles.forEach((v) => {
+      vehicleMap[v._id.toString()] = v;
+    });
 
-    // 4️⃣ Attach vehicle details manually
-    bookings = bookings.map(b => ({
+    // 4️⃣ Attach vehicle info manually
+    bookings = bookings.map((b) => ({
       ...b,
-      vehicle: vehicleMap[b.vehicleId] || null,
+      vehicle: vehicleMap[b.vehicleId?.toString()] || null,
     }));
 
-    // 5️⃣ Save to cache
+    // 5️⃣ Store in cache
     bookingsCache.set(cacheKey, bookings);
 
-    return res.json({ fromCache: false, bookings });
+    return res.json({
+      fromCache: false,
+      bookings,
+    });
   } catch (error) {
     console.error("❌ Error fetching bookings:", error);
     return res.status(500).json({ error: "Server error" });
@@ -153,6 +165,7 @@ router.get("/my-bookings", authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+
 
 
 

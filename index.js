@@ -5,7 +5,7 @@ const cors = require("cors");
 
 const authRoutes = require("./routes/auth");
 const bookingRoutes = require("./routes/Bookings");
-const vehiclesData = require("./vehicles");
+
 const Vehicle = require("./models/Vehicle");
 const Booking = require("./models/Booking");
 
@@ -19,11 +19,6 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.send("Bike Rental API is running 🚀");
 });
-
-// TEST MODE INDICATOR
-if (process.env.TEST_MODE === "true") {
-  console.log("⚡ TEST_MODE ENABLED — Auth bypass active");
-}
 
 // MongoDB connect
 mongoose
@@ -49,6 +44,7 @@ app.post("/api/vehicles/search", async (req, res) => {
     const dayjs = require("dayjs");
     const customParseFormat = require("dayjs/plugin/customParseFormat");
     const isSameOrBefore = require("dayjs/plugin/isSameOrBefore");
+
     dayjs.extend(customParseFormat);
     dayjs.extend(isSameOrBefore);
 
@@ -65,7 +61,8 @@ app.post("/api/vehicles/search", async (req, res) => {
 
     const startDateTime = startDT.toDate();
     const endDateTime = endDT.toDate();
-    const durationDays = (endDateTime - startDateTime) / (1000 * 60 * 60 * 24);
+    const durationDays =
+      (endDateTime - startDateTime) / (1000 * 60 * 60 * 24);
 
     const allVehicles = await Vehicle.find();
     const bookings = await Booking.find({
@@ -96,44 +93,11 @@ app.post("/api/vehicles/search", async (req, res) => {
     });
 
     res.json(results);
-
   } catch (err) {
     console.error("❌ Search error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
-
-/* --------------------------------------------------
-   SEED VEHICLES
--------------------------------------------------- */
-const seedVehicles = async () => {
-  try {
-    const existing = await Vehicle.distinct("number");
-    const toInsert = vehiclesData.filter((v) => !existing.includes(v.number));
-
-    if (toInsert.length > 0) {
-      await Vehicle.insertMany(toInsert, { ordered: false });
-      console.log(`Seeded vehicles: ${toInsert.length}`);
-    } else {
-      console.log("No new vehicles to seed.");
-    }
-
-  } catch (err) {
-    console.error("Seed error:", err);
-  }
-};
-
-seedVehicles();
-
-/* --------------------------------------------------
-   SYNC INDEXES
--------------------------------------------------- */
-(async () => {
-  console.log("📌 Ensuring indexes...");
-  await Booking.syncIndexes();
-  await Vehicle.syncIndexes();
-  console.log("✅ Indexes synced");
-})();
 
 /* --------------------------------------------------
    START SERVER
@@ -143,4 +107,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-
